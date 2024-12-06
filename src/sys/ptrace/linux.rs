@@ -10,6 +10,7 @@ use std::{mem, ptr};
 
 pub type AddressType = *mut ::libc::c_void;
 
+use libc::user_fpregs_struct;
 #[cfg(all(
     target_os = "linux",
     any(
@@ -183,10 +184,7 @@ libc_enum! {
                 target_arch = "riscv64",
             )
         ),
-        all(
-            target_env = "musl",
-            target_arch = "aarch64",
-        )
+        all(target_env = "musl", target_arch = "aarch64",)
     ),
 ))]
 libc_enum! {
@@ -214,10 +212,7 @@ libc_enum! {
                 target_arch = "riscv64",
             )
         ),
-        all(
-            target_env = "musl",
-            target_arch = "aarch64",
-        )
+        all(target_env = "musl", target_arch = "aarch64",)
     ),
 ))]
 /// Represents register set areas, such as general-purpose registers or
@@ -235,7 +230,6 @@ pub unsafe trait RegisterSet {
     type Regs;
 }
 
-
 #[cfg(all(
     target_os = "linux",
     any(
@@ -248,10 +242,7 @@ pub unsafe trait RegisterSet {
                 target_arch = "riscv64",
             )
         ),
-        all(
-            target_env = "musl",
-            target_arch = "aarch64",
-        )
+        all(target_env = "musl", target_arch = "aarch64",)
     ),
 ))]
 /// Register sets used in [`getregset`] and [`setregset`]
@@ -328,6 +319,27 @@ fn ptrace_peek(
     }
 }
 
+/// Get user floating point registers, as with `ptrace(PTRACE_GETFPREGS, ...)`
+///
+/// TODO: platform compat
+///
+/// [ptrace(2)]: https://www.man7.org/linux/man-pages/man2/ptrace.2.html
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(
+            target_arch = "x86_64",
+            any(target_env = "gnu", target_env = "musl")
+        ),
+        all(target_arch = "x86", target_env = "gnu")
+    )
+))]
+pub fn getfpregs(pid: Pid) -> Result<user_fpregs_struct> {
+    use libc::user_fpregs_struct;
+
+    ptrace_get_data::<user_fpregs_struct>(Request::PTRACE_GETFPREGS, pid)
+}
+
 /// Get user registers, as with `ptrace(PTRACE_GETREGS, ...)`
 ///
 /// Note that since `PTRACE_GETREGS` are not available on all platforms (as in [ptrace(2)]),
@@ -402,6 +414,33 @@ pub fn getregset<S: RegisterSet>(pid: Pid) -> Result<S::Regs> {
         )?;
     };
     Ok(unsafe { data.assume_init() })
+}
+
+/// Set user floating point registers, as with `ptrace(PTRACE_SETFPREGS, ...)`
+///
+/// TODO: platform compat
+///
+/// [ptrace(2)]: https://www.man7.org/linux/man-pages/man2/ptrace.2.html
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(
+            target_arch = "x86_64",
+            any(target_env = "gnu", target_env = "musl")
+        ),
+        all(target_arch = "x86", target_env = "gnu")
+    )
+))]
+pub fn setfpregs(pid: Pid, regs: user_fpregs_struct) -> Result<()> {
+    let res = unsafe {
+        libc::ptrace(
+            Request::PTRACE_SETFPREGS as RequestType,
+            libc::pid_t::from(pid),
+            ptr::null_mut::<c_void>(),
+            &regs as *const user_fpregs_struct as *const c_void,
+        )
+    };
+    Errno::result(res).map(drop)
 }
 
 /// Set user registers, as with `ptrace(PTRACE_SETREGS, ...)`
